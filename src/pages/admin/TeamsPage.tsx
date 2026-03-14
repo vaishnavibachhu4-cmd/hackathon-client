@@ -1,24 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Eye, Users } from 'lucide-react';
-import { db } from '../../lib/db';
+import { apiClient } from '../../lib/apiClient';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
-import type { Team } from '../../lib/types';
 
 const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'red' | 'orange'> = {
-  'AI/ML': 'purple',
-  'Web Development': 'blue',
-  'Mobile App': 'green',
-  'IoT': 'yellow',
-  'Cybersecurity': 'red',
-  'Blockchain': 'orange',
+  'AI/ML': 'purple', 'Web Development': 'blue', 'Mobile App': 'green',
+  'IoT': 'yellow', 'Cybersecurity': 'red', 'Blockchain': 'orange',
 };
 
 export default function TeamsPage() {
   const [search, setSearch] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<any | null>(null);
+  const [teams, setTeams] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const teams = db.getTeams().filter(t =>
+  const fetchTeams = useCallback(async () => {
+    try {
+      const data = await apiClient.get('/api/teams');
+      setTeams(data);
+    } catch (err) {
+      console.error('Failed to fetch teams:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTeams();
+  }, [fetchTeams]);
+
+  const filteredTeams = teams.filter(t =>
     t.teamName.toLowerCase().includes(search.toLowerCase()) ||
     t.projectTitle.toLowerCase().includes(search.toLowerCase()) ||
     t.leaderName.toLowerCase().includes(search.toLowerCase())
@@ -38,14 +50,16 @@ export default function TeamsPage() {
             placeholder="Search teams..."
             className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-4 py-2.5 text-white placeholder-gray-500 text-sm outline-none focus:border-violet-500" />
         </div>
-        <span className="text-gray-400 text-sm">{teams.length} team{teams.length !== 1 ? 's' : ''}</span>
+        <span className="text-gray-400 text-sm">{filteredTeams.length} team{filteredTeams.length !== 1 ? 's' : ''}</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {teams.length === 0 ? (
+        {loading ? (
+          <div className="col-span-full text-center py-12 text-gray-500">Loading teams...</div>
+        ) : filteredTeams.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500">No teams found</div>
-        ) : teams.map(team => (
-          <div key={team.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-all">
+        ) : filteredTeams.map(team => (
+          <div key={team._id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-all">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="text-white font-semibold">{team.teamName}</h3>
@@ -63,7 +77,7 @@ export default function TeamsPage() {
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-500 text-xs">{team.members.length + 1} member{team.members.length !== 0 ? 's' : ''}</span>
+              <span className="text-gray-500 text-xs">{(team.members?.length || 0) + 1} member{team.members?.length !== 0 ? 's' : ''}</span>
               <button onClick={() => setSelectedTeam(team)}
                 className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20 hover:bg-violet-900/40 px-3 py-1.5 rounded-lg transition-all">
                 <Eye size={13} /> View Details
@@ -94,12 +108,12 @@ export default function TeamsPage() {
               </div>
             </div>
             <div>
-              <h4 className="text-white font-medium mb-3">Team Members ({selectedTeam.members.length})</h4>
-              {selectedTeam.members.length === 0 ? (
+              <h4 className="text-white font-medium mb-3">Team Members ({selectedTeam.members?.length || 0})</h4>
+              {(!selectedTeam.members || selectedTeam.members.length === 0) ? (
                 <p className="text-gray-500 text-sm">No additional members</p>
               ) : (
                 <div className="space-y-2">
-                  {selectedTeam.members.map((m, i) => (
+                  {selectedTeam.members.map((m: any, i: number) => (
                     <div key={i} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-white text-xs font-bold">
                         {m.name.charAt(0)}

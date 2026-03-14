@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { db } from '../../lib/db';
+import { apiClient } from '../../lib/apiClient';
 import { Eye, Star, CheckCircle } from 'lucide-react';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import EvaluationForm from './EvaluationForm';
-import type { Project } from '../../lib/types';
 
 const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'red' | 'orange'> = {
   'AI/ML': 'purple', 'Web Development': 'blue', 'Mobile App': 'green',
@@ -14,12 +13,39 @@ const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'r
 
 export default function AssignedProjectsPage() {
   const { user } = useAuthStore();
-  const [viewProject, setViewProject] = useState<Project | null>(null);
-  const [evaluateProject, setEvaluateProject] = useState<Project | null>(null);
-  const [, forceUpdate] = useState(0);
+  const [viewProject, setViewProject] = useState<any | null>(null);
+  const [evaluateProject, setEvaluateProject] = useState<any | null>(null);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const assignments = user ? db.getAssignmentsByJury(user.id) : [];
-  const projects = assignments.map(a => db.getProjectById(a.projectId)).filter(Boolean) as Project[];
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [assigns, evals] = await Promise.all([
+        apiClient.get('/api/assignments/my'),
+        apiClient.get('/api/evaluations/my'),
+      ]);
+      setAssignments(assigns);
+      setEvaluations(evals);
+    } catch (err) {
+      console.error('Failed to fetch assigned projects:', err);
+      setAssignments([]);
+      setEvaluations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchData();
+  }, [fetchData, user?.id]);
+
+  const getEvaluation = (projectId: string) => {
+    return evaluations.find(e => e.projectId?._id === projectId || e.projectId === projectId);
+  };
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
 
   return (
     <div className="space-y-6">
@@ -28,7 +54,7 @@ export default function AssignedProjectsPage() {
         <p className="text-gray-400 text-sm mt-1">Projects assigned to you for evaluation</p>
       </div>
 
-      {projects.length === 0 ? (
+      {assignments.length === 0 ? (
         <div className="text-center py-20">
           <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
             <Star size={28} className="text-gray-600" />
@@ -38,10 +64,12 @@ export default function AssignedProjectsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {projects.map(project => {
-            const evaluated = db.getEvaluationByJuryProject(user!.id, project.id);
+          {assignments.map(a => {
+            const project = a.projectId;
+            if (!project) return null;
+            const evaluated = getEvaluation(project._id);
             return (
-              <div key={project.id} className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl p-5 transition-all">
+              <div key={a._id} className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl p-5 transition-all">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-white font-semibold truncate">{project.projectTitle}</h3>
@@ -103,28 +131,15 @@ export default function AssignedProjectsPage() {
             <div className="flex flex-wrap gap-3">
               {viewProject.githubLink && (
                 <a href={viewProject.githubLink} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm">
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">
                   GitHub Repository
                 </a>
               )}
               {viewProject.demoVideo && (
                 <a href={viewProject.demoVideo} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm">
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors">
                   Project Video Link
                 </a>
-              )}
-              {viewProject.projectFileData && (
-                <button
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = viewProject.projectFileData!;
-                    link.download = viewProject.projectFileName || 'project-video';
-                    link.click();
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-900/40 hover:bg-blue-900/60 text-blue-300 rounded-lg text-sm transition-colors"
-                >
-                  Download Project Video
-                </button>
               )}
             </div>
           </div>
@@ -132,13 +147,13 @@ export default function AssignedProjectsPage() {
       </Modal>
 
       {/* Evaluation Modal */}
-      <Modal isOpen={!!evaluateProject} onClose={() => { setEvaluateProject(null); forceUpdate(n => n + 1); }} title="Evaluate Project" size="lg">
+      <Modal isOpen={!!evaluateProject} onClose={() => { setEvaluateProject(null); fetchData(); }} title="Evaluate Project" size="lg">
         {evaluateProject && user && (
           <EvaluationForm
             project={evaluateProject}
             juryId={user.id}
             juryName={user.name}
-            onComplete={() => { setEvaluateProject(null); forceUpdate(n => n + 1); }}
+            onComplete={() => { setEvaluateProject(null); fetchData(); }}
           />
         )}
       </Modal>

@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
-import { db, generateId } from '../../lib/db';
-import type { Project } from '../../lib/types';
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../../lib/apiClient';
 import { CheckCircle } from 'lucide-react';
 
 interface Props {
-  project: Project;
+  project: any;
   juryId: string;
   juryName: string;
   onComplete: () => void;
@@ -19,18 +18,49 @@ const criteria = [
 ] as const;
 
 export default function EvaluationForm({ project, juryId, juryName, onComplete }: Props) {
-  const existing = db.getEvaluationByJuryProject(juryId, project.id);
-
   const [scores, setScores] = useState({
-    innovation: existing?.innovation ?? 5,
-    technical: existing?.technical ?? 5,
-    uiux: existing?.uiux ?? 5,
-    presentation: existing?.presentation ?? 5,
-    impact: existing?.impact ?? 5,
+    innovation: 5,
+    technical: 5,
+    uiux: 5,
+    presentation: 5,
+    impact: 5,
   });
-  const [feedback, setFeedback] = useState(existing?.feedback || '');
+  const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    const fetchExisting = async () => {
+      if (!project) return;
+      setFetching(true);
+      setDone(false);
+      try {
+        const evals = await apiClient.get('/api/evaluations/my');
+        const existing = evals.find((e: any) => e.projectId?._id === project?._id || e.projectId === project?._id);
+        if (existing) {
+          setScores({
+            innovation: existing.innovation ?? 5,
+            technical: existing.technical ?? 5,
+            uiux: existing.uiux ?? 5,
+            presentation: existing.presentation ?? 5,
+            impact: existing.impact ?? 5,
+          });
+          setFeedback(existing.feedback || '');
+        } else {
+          setScores({ innovation: 5, technical: 5, uiux: 5, presentation: 5, impact: 5 });
+          setFeedback('');
+        }
+      } catch (err) {
+        console.error('Failed to fetch existing evaluation:', err);
+        setScores({ innovation: 5, technical: 5, uiux: 5, presentation: 5, impact: 5 });
+        setFeedback('');
+      } finally {
+        setFetching(false);
+      }
+    };
+    fetchExisting();
+  }, [project]);
 
   const total = Object.values(scores).reduce((a, b) => a + b, 0);
 
@@ -41,31 +71,22 @@ export default function EvaluationForm({ project, juryId, juryName, onComplete }
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-
-    if (existing) {
-      db.updateEvaluation(existing.id, {
+    try {
+      await apiClient.post('/api/evaluations', {
+        projectId: project._id || project.id,
         ...scores,
-        totalScore: total,
         feedback,
-        evaluatedAt: new Date().toISOString(),
       });
-    } else {
-      db.addEvaluation({
-        id: generateId(),
-        projectId: project.id,
-        juryId,
-        juryName,
-        ...scores,
-        totalScore: total,
-        feedback,
-        evaluatedAt: new Date().toISOString(),
-      });
+      setDone(true);
+      setTimeout(onComplete, 1500);
+    } catch (err) {
+      console.error('Failed to submit evaluation:', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-    setDone(true);
-    setTimeout(onComplete, 1500);
   };
+
+  if (fetching) return <div className="text-center py-8 text-gray-400">Loading...</div>;
 
   if (done) {
     return (
@@ -118,19 +139,6 @@ export default function EvaluationForm({ project, juryId, juryName, onComplete }
               />
               <span className="text-gray-500 text-xs">10</span>
             </div>
-            <div className="flex justify-between mt-1">
-              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                <button key={n} type="button"
-                  onClick={() => handleScore(c.key, n)}
-                  className={`w-6 h-6 rounded-full text-xs font-medium transition-all ${
-                    scores[c.key] === n
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                  }`}>
-                  {n}
-                </button>
-              ))}
-            </div>
           </div>
         ))}
       </div>
@@ -145,7 +153,7 @@ export default function EvaluationForm({ project, juryId, juryName, onComplete }
 
       <button type="submit" disabled={loading}
         className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-semibold transition-all disabled:opacity-60">
-        {loading ? 'Submitting...' : existing ? 'Update Evaluation' : 'Submit Evaluation'}
+        {loading ? 'Submitting...' : 'Submit Evaluation'}
       </button>
     </form>
   );

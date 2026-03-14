@@ -1,23 +1,44 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { db } from '../../lib/db';
-import { FolderOpen, ClipboardList, BarChart3, ArrowRight, AlertCircle } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
+import { FolderOpen, ClipboardList, BarChart3, ArrowRight } from 'lucide-react';
 import StatCard from '../../components/StatCard';
 import { motion } from 'framer-motion';
 
 export default function JuryDashboard() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const assignments = user ? db.getAssignmentsByJury(user.id) : [];
-  const evaluations = assignments.map(a => db.getEvaluationByJuryProject(user!.id, a.projectId)).filter(Boolean);
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [assigns, evals] = await Promise.all([
+        apiClient.get('/api/assignments/my'),
+        apiClient.get('/api/evaluations/my'),
+      ]);
+      setAssignments(assigns);
+      setEvaluations(evals);
+    } catch (err) {
+      console.error('Failed to fetch jury data:', err);
+      setAssignments([]);
+      setEvaluations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchData();
+  }, [fetchData, user?.id]);
+
   const pending = assignments.length - evaluations.length;
-
-  const notifications = user ? db.getNotifications(user.id) : [];
-  const unread = notifications.filter(n => !n.read);
-
   const recentAssignments = assignments.slice(-3).reverse();
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
 
   return (
     <div className="space-y-6">
@@ -25,17 +46,6 @@ export default function JuryDashboard() {
         <h1 className="text-2xl font-bold text-white">Welcome, {user?.name?.split(' ')[0]}!</h1>
         <p className="text-gray-400 text-sm mt-1">Your jury evaluation dashboard</p>
       </div>
-
-      {unread.length > 0 && (
-        <div className="space-y-2">
-          {unread.map(n => (
-            <div key={n.id} className="flex items-start gap-3 bg-blue-900/20 border border-blue-700/40 rounded-xl p-4">
-              <AlertCircle size={18} className="text-blue-400 flex-shrink-0" />
-              <p className="text-blue-300 text-sm">{n.message}</p>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
@@ -47,7 +57,7 @@ export default function JuryDashboard() {
             icon={<ClipboardList size={20} className="text-white" />} color="bg-gradient-to-br from-emerald-600 to-teal-700" />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <StatCard title="Pending" value={pending}
+          <StatCard title="Pending" value={pending > 0 ? pending : 0}
             icon={<BarChart3 size={20} className="text-white" />} color="bg-gradient-to-br from-violet-600 to-purple-700" />
         </motion.div>
       </div>
@@ -63,20 +73,20 @@ export default function JuryDashboard() {
             <p className="text-gray-500 text-sm text-center py-6">No projects assigned yet</p>
           ) : (
             <div className="space-y-3">
-              {recentAssignments.map(a => {
-                const project = db.getProjectById(a.projectId);
-                const evaluated = db.getEvaluationByJuryProject(user!.id, a.projectId);
+              {recentAssignments.map((a: any) => {
+                const project = a.projectId;
+                const evaluation = evaluations.find(e => e.projectId?._id === project?._id || e.projectId === project?._id);
                 return (
-                  <div key={a.id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
+                  <div key={a._id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
                     <div className="w-9 h-9 bg-amber-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FolderOpen size={16} className="text-amber-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate">{project?.projectTitle}</p>
-                      <p className="text-gray-400 text-xs">{project?.teamName}</p>
+                      <p className="text-white text-sm font-medium truncate">{project?.projectTitle || 'Unknown Project'}</p>
+                      <p className="text-gray-400 text-xs">{project?.teamName || 'Team —'}</p>
                     </div>
-                    {evaluated
-                      ? <span className="text-xs text-emerald-400">{evaluated.totalScore}/50</span>
+                    {evaluation
+                      ? <span className="text-xs text-emerald-400">{evaluation.totalScore}/50</span>
                       : <span className="text-xs text-amber-400">Pending</span>}
                   </div>
                 );

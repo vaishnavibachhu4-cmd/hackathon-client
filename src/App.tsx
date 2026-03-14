@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
-import { initializeAdmin } from './lib/db';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -40,10 +39,6 @@ function ProtectedRoute({ children, role }: { children: React.ReactNode; role: s
 }
 
 export default function App() {
-  useEffect(() => {
-    initializeAdmin();
-  }, []);
-
   return (
     <BrowserRouter>
       <Routes>

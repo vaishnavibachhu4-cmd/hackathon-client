@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { db } from '../../lib/db';
-import { Github, Play, Download, Edit, FileText, BarChart3 } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
+import { Github, Play, Edit, FileText, BarChart3 } from 'lucide-react';
 import Badge from '../../components/Badge';
 
 const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'red' | 'orange'> = {
@@ -13,9 +13,35 @@ const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'r
 export default function MyProjectPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
-  const team = user ? db.getTeamByLeader(user.id) : null;
-  const project = team ? db.getProjectByTeam(team.id) : null;
-  const evaluations = project ? db.getEvaluationsByProject(project.id) : [];
+  const [project, setProject] = useState<any>(null);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const p = await apiClient.get('/api/projects/my');
+      setProject(p);
+      if (p) {
+        const evals = await apiClient.get(`/api/evaluations/project/${p._id}`);
+        setEvaluations(evals);
+      } else {
+        setEvaluations([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch project data:', err);
+      setProject(null);
+      setEvaluations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchData();
+  }, [fetchData, user?.id]);
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading...</div>;
 
   if (!project) {
     return (
@@ -34,15 +60,6 @@ export default function MyProjectPage() {
   const avgScore = evaluations.length > 0
     ? (evaluations.reduce((s, e) => s + e.totalScore, 0) / evaluations.length).toFixed(1)
     : null;
-
-  const handleDownload = () => {
-    if (project.projectFileData) {
-      const link = document.createElement('a');
-      link.href = project.projectFileData;
-      link.download = project.projectFileName || 'project-file';
-      link.click();
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -74,7 +91,7 @@ export default function MyProjectPage() {
           <div>
             <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-2">Technology Stack</p>
             <div className="flex flex-wrap gap-2">
-              {project.techStack.split(',').map(t => (
+              {project.techStack?.split(',').map((t: string) => (
                 <span key={t} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs border border-gray-700">{t.trim()}</span>
               ))}
             </div>
@@ -93,15 +110,9 @@ export default function MyProjectPage() {
                 <Play size={16} /> Project Video Link
               </a>
             )}
-            {project.projectFileData && (
-              <button onClick={handleDownload}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-900/40 hover:bg-blue-900/60 text-blue-300 rounded-lg text-sm">
-                <Download size={16} /> Download Video: {project.projectFileName}
-              </button>
-            )}
           </div>
 
-          <p className="text-xs text-gray-500">Submitted: {new Date(project.submissionDate).toLocaleString()}</p>
+          <p className="text-xs text-gray-500">Submitted: {new Date(project.submissionDate || project.createdAt).toLocaleString()}</p>
         </div>
       </div>
 
@@ -120,8 +131,8 @@ export default function MyProjectPage() {
             )}
           </div>
           <div className="space-y-4">
-            {evaluations.map(e => (
-              <div key={e.id} className="bg-gray-800 rounded-xl p-4">
+            {evaluations.map((e: any) => (
+              <div key={e._id} className="bg-gray-800 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-white font-medium text-sm">{e.juryName}</span>
                   <span className={`font-bold ${

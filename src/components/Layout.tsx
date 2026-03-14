@@ -6,7 +6,6 @@ import {
   Bell, ChevronRight, Shield, UserCheck, Gavel, Trophy, FileText,
   PlusCircle, ClipboardList, Settings, BarChart3
 } from 'lucide-react';
-import { db } from '../lib/db';
 
 interface NavItem {
   label: string;
@@ -45,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const notifications = user ? db.getNotifications(user.id).filter(n => !n.read) : [];
+  const notifications: any[] = [];
   const navItems = user ? getNavItems(user.role) : [];
 
   const handleLogout = () => {

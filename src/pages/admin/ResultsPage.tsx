@@ -1,52 +1,48 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trophy, Medal, Award, Crown } from 'lucide-react';
-import { db, generateId } from '../../lib/db';
+import { apiClient } from '../../lib/apiClient';
 import { motion } from 'framer-motion';
 
 export default function ResultsPage() {
-  const [, forceUpdate] = useState(0);
-  const refresh = () => forceUpdate(n => n + 1);
+  const [winners, setWinners] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const projects = db.getProjects();
-  const evaluations = db.getEvaluations();
-  const winners = db.getWinners();
+  const fetchData = useCallback(async () => {
+    try {
+      const [w, l] = await Promise.all([
+        apiClient.get('/api/results/winners'),
+        apiClient.get('/api/results/leaderboard'),
+      ]);
+      setWinners(w);
+      setLeaderboard(l);
+    } catch (err) {
+      console.error('Failed to fetch results:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // Calculate scores per project (average of all jury evaluations)
-  const projectScores = projects.map(p => {
-    const evals = evaluations.filter(e => e.projectId === p.id);
-    const avgScore = evals.length > 0
-      ? evals.reduce((s, e) => s + e.totalScore, 0) / evals.length
-      : 0;
-    return { ...p, avgScore: Math.round(avgScore * 10) / 10, evalCount: evals.length };
-  }).sort((a, b) => b.avgScore - a.avgScore);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  const handleDeclareWinners = () => {
-    const top3 = projectScores.slice(0, 3);
+  const handleDeclareWinners = async () => {
+    const top3 = leaderboard.filter(p => p.evalCount > 0).slice(0, 3);
     const newWinners = top3.map((p, i) => ({
       rank: i + 1,
       teamId: p.teamId,
       teamName: p.teamName,
       projectTitle: p.projectTitle,
       totalScore: p.avgScore,
-      declaredAt: new Date().toISOString(),
     }));
-    db.setWinners(newWinners);
 
-    // Notify teams
-    newWinners.forEach((w, i) => {
-      const team = db.getTeamById(w.teamId);
-      if (team) {
-        db.addNotification({
-          id: generateId(),
-          userId: team.leaderId,
-          message: `Congratulations! Your team "${w.teamName}" finished in ${['1st', '2nd', '3rd'][i]} place! 🎉`,
-          type: 'success',
-          read: false,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    });
-    refresh();
+    try {
+      await apiClient.post('/api/results/declare', { winners: newWinners });
+      fetchData();
+    } catch (err) {
+      console.error('Failed to declare winners:', err);
+    }
   };
 
   const rankMedals = [
@@ -55,6 +51,8 @@ export default function ResultsPage() {
     { icon: <Award size={24} className="text-amber-600" />, color: 'from-amber-800/20 to-orange-800/20 border-amber-700/40', label: '3rd Place', textColor: 'text-amber-600' },
   ];
 
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading Results...</div>;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -62,7 +60,7 @@ export default function ResultsPage() {
           <h1 className="text-2xl font-bold text-white">Results & Leaderboard</h1>
           <p className="text-gray-400 text-sm mt-1">Project rankings based on jury evaluations</p>
         </div>
-        {projectScores.some(p => p.evalCount > 0) && (
+        {leaderboard.some(p => p.evalCount > 0) && (
           <button onClick={handleDeclareWinners}
             className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 text-white rounded-xl text-sm font-semibold transition-all shadow-lg">
             <Trophy size={18} /> Declare Winners
@@ -105,10 +103,10 @@ export default function ResultsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {projectScores.length === 0 ? (
+            {leaderboard.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-500">No projects submitted yet</td></tr>
-            ) : projectScores.map((p, i) => (
-              <tr key={p.id} className={`transition-colors ${
+            ) : leaderboard.map((p, i) => (
+              <tr key={i} className={`transition-colors ${
                 i === 0 ? 'bg-yellow-900/10 hover:bg-yellow-900/20' :
                 i === 1 ? 'bg-gray-700/10 hover:bg-gray-700/20' :
                 i === 2 ? 'bg-amber-900/10 hover:bg-amber-900/20' :

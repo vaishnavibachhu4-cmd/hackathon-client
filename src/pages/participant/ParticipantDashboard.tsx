@@ -1,24 +1,53 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { db } from '../../lib/db';
-import { Users, FileText, FolderOpen, ArrowRight, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
+import { Users, FileText, FolderOpen, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import StatCard from '../../components/StatCard';
 import { motion } from 'framer-motion';
 
 export default function ParticipantDashboard() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const [team, setTeam] = useState<any>(null);
+  const [project, setProject] = useState<any>(null);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const team = user ? db.getTeamByLeader(user.id) : null;
-  const project = team ? db.getProjectByTeam(team.id) : null;
-  const evaluations = project ? db.getEvaluationsByProject(project.id) : [];
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const t = await apiClient.get('/api/teams/my');
+      setTeam(t);
+      if (t) {
+        const p = await apiClient.get('/api/projects/my');
+        setProject(p);
+        if (p) {
+          const evals = await apiClient.get(`/api/evaluations/project/${p._id}`);
+          setEvaluations(evals);
+        } else {
+          setEvaluations([]);
+        }
+      } else {
+        setProject(null);
+        setEvaluations([]);
+      }
+    } catch (err) { 
+      console.error(err);
+      setTeam(null);
+      setProject(null);
+      setEvaluations([]);
+    }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { 
+    if (user) fetchData();
+  }, [fetchData, user?.id]);
+
   const avgScore = evaluations.length > 0
     ? (evaluations.reduce((s, e) => s + e.totalScore, 0) / evaluations.length).toFixed(1)
     : null;
-
-  const notifications = user ? db.getNotifications(user.id) : [];
-  const unread = notifications.filter(n => !n.read);
 
   const steps = [
     { label: 'Account Approved', done: true, icon: <CheckCircle size={16} /> },
@@ -34,25 +63,6 @@ export default function ParticipantDashboard() {
         <p className="text-gray-400 text-sm mt-1">Your hackathon participant dashboard</p>
       </div>
 
-      {/* Notifications */}
-      {unread.length > 0 && (
-        <div className="space-y-2">
-          {unread.map(n => (
-            <div key={n.id} className={`flex items-start gap-3 rounded-xl p-4 border ${
-              n.type === 'success' ? 'bg-emerald-900/20 border-emerald-700/40' :
-              n.type === 'error' ? 'bg-red-900/20 border-red-700/40' :
-              'bg-blue-900/20 border-blue-700/40'
-            }`}>
-              <AlertCircle size={18} className={n.type === 'success' ? 'text-emerald-400' : n.type === 'error' ? 'text-red-400' : 'text-blue-400'} />
-              <p className={`text-sm ${
-                n.type === 'success' ? 'text-emerald-300' :
-                n.type === 'error' ? 'text-red-300' : 'text-blue-300'
-              }`}>{n.message}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
@@ -61,9 +71,9 @@ export default function ParticipantDashboard() {
             subtitle={team ? team.teamName : 'Create your team'} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <StatCard title="Team Members" value={team ? team.members.length + 1 : 0}
+          <StatCard title="Team Members" value={team ? (team.members?.length || 0) + 1 : 0}
             icon={<Users size={20} className="text-white" />} color="bg-gradient-to-br from-blue-600 to-indigo-700"
-            subtitle={`Max 5 members`} />
+            subtitle="Max 5 members" />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <StatCard title="Project" value={project ? 'Submitted' : 'Not Submitted'}
@@ -82,16 +92,12 @@ export default function ParticipantDashboard() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-white font-semibold mb-4">Your Progress</h3>
           <div className="space-y-3">
-            {steps.map((step, i) => (
+            {steps.map(step => (
               <div key={step.label} className="flex items-center gap-3">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                   step.done ? 'bg-emerald-900/40 text-emerald-400' : 'bg-gray-800 text-gray-500'
-                }`}>
-                  {step.icon}
-                </div>
-                <div className="flex-1">
-                  <p className={`text-sm font-medium ${step.done ? 'text-white' : 'text-gray-500'}`}>{step.label}</p>
-                </div>
+                }`}>{step.icon}</div>
+                <p className={`text-sm font-medium flex-1 ${step.done ? 'text-white' : 'text-gray-500'}`}>{step.label}</p>
                 {step.done && <CheckCircle size={16} className="text-emerald-400" />}
               </div>
             ))}
@@ -102,7 +108,7 @@ export default function ParticipantDashboard() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h3 className="text-white font-semibold mb-4">Quick Actions</h3>
           <div className="space-y-3">
-            {!team && (
+            {!team && !loading && (
               <button onClick={() => navigate('/participant/team')}
                 className="w-full flex items-center justify-between p-4 bg-emerald-900/20 hover:bg-emerald-900/30 border border-emerald-800/50 rounded-xl transition-all group">
                 <div className="flex items-center gap-3">
@@ -160,15 +166,15 @@ export default function ParticipantDashboard() {
               </div>
             </div>
             <div className="space-y-2">
-              <p className="text-gray-400 text-xs font-medium">Members ({team.members.length + 1})</p>
+              <p className="text-gray-400 text-xs font-medium">Members ({(team.members?.length || 0) + 1})</p>
               <div className="flex items-center gap-2 p-2 bg-gray-800 rounded-lg">
                 <div className="w-7 h-7 rounded-full bg-emerald-900/40 flex items-center justify-center text-xs text-emerald-400 font-bold">
-                  {user?.name?.charAt(0)}
+                  {team.leaderName?.charAt(0)}
                 </div>
-                <span className="text-white text-sm">{user?.name}</span>
+                <span className="text-white text-sm">{team.leaderName}</span>
                 <span className="ml-auto text-xs text-emerald-400">Leader</span>
               </div>
-              {team.members.map((m, i) => (
+              {(team.members || []).map((m: any, i: number) => (
                 <div key={i} className="flex items-center gap-2 p-2 bg-gray-800 rounded-lg">
                   <div className="w-7 h-7 rounded-full bg-violet-900/40 flex items-center justify-center text-xs text-violet-400 font-bold">
                     {m.name.charAt(0)}
@@ -187,13 +193,12 @@ export default function ParticipantDashboard() {
             <h3 className="text-white font-semibold mb-4">Evaluation Scores</h3>
             <div className="space-y-3">
               {evaluations.map(e => (
-                <div key={e.id} className="bg-gray-800 rounded-lg p-4">
+                <div key={e._id} className="bg-gray-800 rounded-lg p-4">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-gray-300 text-sm">{e.juryName}</span>
-                    <span className={`font-bold ${
-                      e.totalScore >= 40 ? 'text-emerald-400' :
-                      e.totalScore >= 25 ? 'text-amber-400' : 'text-red-400'
-                    }`}>{e.totalScore}/50</span>
+                    <span className={`font-bold ${e.totalScore >= 40 ? 'text-emerald-400' : e.totalScore >= 25 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {e.totalScore}/50
+                    </span>
                   </div>
                   {e.feedback && <p className="text-gray-400 text-xs">{e.feedback}</p>}
                 </div>
