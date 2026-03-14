@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://hackathon-server-uz55.onrender.com';
 
 async function request(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem('hms_token');
