@@ -18,8 +18,13 @@ export default function ParticipantDashboard() {
     try {
       setLoading(true);
       const t = await apiClient.get('/api/teams/my');
-      setTeam(t);
-      if (t) {
+      
+      // Safety check: ensure the team actually belongs to this user
+      const isMember = t?.members?.some((m: any) => m.email === user?.email);
+      const isLeader = t?.leaderId === user?.id || t?.leaderId === (user as any)?._id;
+
+      if (t && (isLeader || isMember)) {
+        setTeam(t);
         const p = await apiClient.get('/api/projects/my');
         setProject(p);
         if (p) {
@@ -29,6 +34,7 @@ export default function ParticipantDashboard() {
           setEvaluations([]);
         }
       } else {
+        setTeam(null);
         setProject(null);
         setEvaluations([]);
       }
