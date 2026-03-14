@@ -21,17 +21,19 @@ export default function MyProjectPage() {
     try {
       setLoading(true);
       const p = await apiClient.get('/api/projects/my');
-      setProject(p);
-      if (p) {
+      
+      // Verification: ensure project belongs to user (usually handled by backend, but safety first)
+      const isLeader = p?.leaderId === user?.id || p?.leaderId === (user as any)?._id;
+      const isTeamMember = project ? true : false; // If backend returned it, we assume we're on the team for now, but let's be strict
+
+      if (p && isLeader) {
+        setProject(p);
         const evals = await apiClient.get(`/api/evaluations/project/${p._id}`);
         setEvaluations(evals);
       } else {
+        setProject(null);
         setEvaluations([]);
       }
-    } catch (err) {
-      console.error('Failed to fetch project data:', err);
-      setProject(null);
-      setEvaluations([]);
     } finally {
       setLoading(false);
     }

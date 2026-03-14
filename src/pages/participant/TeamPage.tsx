@@ -20,13 +20,19 @@ export default function TeamPage() {
     try {
       setLoading(true);
       const t = await apiClient.get('/api/teams/my');
-      setTeam(t);
-      if (t) {
+      
+      // Safety check: ensure the team actually belongs to this user
+      const isMember = t?.members?.some((m: any) => m.email === user?.email);
+      const isLeader = t?.leaderId === user?.id || t?.leaderId === (user as any)?._id;
+
+      if (t && (isLeader || isMember)) {
+        setTeam(t);
         setTeamName(t.teamName || '');
         setProjectTitle(t.projectTitle || '');
         setCategory(t.category || 'AI/ML');
         setMembers(t.members || []);
       } else {
+        setTeam(null);
         setTeamName('');
         setProjectTitle('');
         setCategory('AI/ML');

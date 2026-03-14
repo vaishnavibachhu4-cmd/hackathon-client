@@ -19,8 +19,13 @@ export default function SubmitProjectPage() {
     try {
       setFetching(true);
       const t = await apiClient.get('/api/teams/my');
-      setTeam(t);
-      if (t) {
+      
+      // Safety check: ensure the team actually belongs to this user
+      const isMember = t?.members?.some((m: any) => m.email === user?.email);
+      const isLeader = t?.leaderId === user?.id || t?.leaderId === (user as any)?._id;
+
+      if (t && (isLeader || isMember)) {
+        setTeam(t);
         const p = await apiClient.get('/api/projects/my');
         if (p) {
           setExistingProject(p);
@@ -29,6 +34,10 @@ export default function SubmitProjectPage() {
           setExistingProject(null);
           setFormData({ description: '', techStack: '', githubLink: '', demoVideo: '' });
         }
+      } else {
+        setTeam(null);
+        setExistingProject(null);
+        setFormData({ description: '', techStack: '', githubLink: '', demoVideo: '' });
       }
     } catch (err) { 
       console.error(err);
