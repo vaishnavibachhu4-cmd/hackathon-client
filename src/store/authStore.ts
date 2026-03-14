@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { User } from '../lib/types';
-import { db } from '../lib/db';
 
 interface AuthState {
   user: User | null;
@@ -9,18 +8,30 @@ interface AuthState {
   refreshUser: () => void;
 }
 
+const getCurrentUser = (): User | null => {
+  try {
+    return JSON.parse(localStorage.getItem('hms_current_user') || 'null');
+  } catch { return null; }
+};
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: db.getCurrentUser(),
+  user: getCurrentUser(),
   setUser: (user) => {
-    db.setCurrentUser(user);
+    if (user) {
+      localStorage.setItem('hms_current_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('hms_current_user');
+      localStorage.removeItem('hms_token');
+    }
     set({ user });
   },
   logout: () => {
-    db.setCurrentUser(null);
+    localStorage.removeItem('hms_current_user');
+    localStorage.removeItem('hms_token');
     set({ user: null });
   },
   refreshUser: () => {
-    const user = db.getCurrentUser();
+    const user = getCurrentUser();
     set({ user });
   },
 }));

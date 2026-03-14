@@ -1,24 +1,29 @@
-import { db, verifyPassword } from './db';
+import { apiClient } from './apiClient';
 import type { User, UserRole } from './types';
 
-export function login(email: string, password: string): { success: boolean; user?: User; error?: string } {
-  const user = db.getUserByEmail(email.toLowerCase().trim());
-  if (!user) return { success: false, error: 'No account found with this email.' };
-  if (!verifyPassword(password, user.password)) return { success: false, error: 'Incorrect password.' };
-  if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
-    if (user.approvalStatus === 'pending') return { success: false, error: 'Your account is pending admin approval.' };
-    if (user.approvalStatus === 'rejected') return { success: false, error: 'Your account has been rejected. Contact admin.' };
+export async function login(email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
+  try {
+    const response = await apiClient.post('/api/auth/login', { email, password });
+    if (response.token && response.user) {
+      localStorage.setItem('hms_token', response.token);
+      localStorage.setItem('hms_current_user', JSON.stringify(response.user));
+      return { success: true, user: response.user };
+    }
+    return { success: false, error: 'Invalid response from server' };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Login failed' };
   }
-  db.setCurrentUser(user);
-  return { success: true, user };
 }
 
 export function logout() {
-  db.setCurrentUser(null);
+  localStorage.removeItem('hms_token');
+  localStorage.removeItem('hms_current_user');
 }
 
 export function getCurrentUser(): User | null {
-  return db.getCurrentUser();
+  try {
+    return JSON.parse(localStorage.getItem('hms_current_user') || 'null');
+  } catch { return null; }
 }
 
 export function requireRole(role: UserRole): boolean {
