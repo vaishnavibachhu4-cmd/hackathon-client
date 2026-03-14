@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, CheckCircle } from 'lucide-react';
-import { db, generateId } from '../../lib/db';
+import { apiClient } from '../../lib/apiClient';
 import Badge from '../../components/Badge';
 
 const categoryColors: Record<string, 'purple' | 'blue' | 'green' | 'yellow' | 'red' | 'orange'> = {
@@ -13,56 +13,55 @@ export default function AssignmentsPage() {
   const [selectedJury, setSelectedJury] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
-  const [, forceUpdate] = useState(0);
-  const refresh = () => forceUpdate(n => n + 1);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [juryMembers, setJuryMembers] = useState<any[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const projects = db.getProjects();
-  const juryMembers = db.getUsers().filter(u => u.role === 'jury' && u.approvalStatus === 'approved');
-  const assignments = db.getAssignments();
+  const fetchData = useCallback(async () => {
+    try {
+      const [proj, jury, assign] = await Promise.all([
+        apiClient.get('/api/projects'),
+        apiClient.get('/api/users/jury'),
+        apiClient.get('/api/assignments'),
+      ]);
+      setProjects(proj);
+      setJuryMembers(jury.filter((u: any) => u.approvalStatus === 'approved'));
+      setAssignments(assign);
+    } catch (err) {
+      console.error('Failed to fetch data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleAssign = () => {
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleAssign = async () => {
     if (!selectedProject || !selectedJury) {
       setError('Please select both a project and a jury member');
       return;
     }
-    const exists = assignments.find(a => a.projectId === selectedProject && a.juryId === selectedJury);
-    if (exists) {
-      setError('This project is already assigned to this jury member');
-      return;
+    try {
+      await apiClient.post('/api/assignments', { projectId: selectedProject, juryId: selectedJury });
+      const jury = juryMembers.find(j => j._id === selectedJury);
+      setSuccess(`Project assigned to ${jury?.name} successfully!`);
+      setError('');
+      setSelectedProject('');
+      setSelectedJury('');
+      fetchData();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Assignment failed');
     }
-    db.addAssignment({
-      id: generateId(),
-      projectId: selectedProject,
-      juryId: selectedJury,
-      assignedAt: new Date().toISOString(),
-    });
-    const project = db.getProjectById(selectedProject);
-    const jury = db.getUserById(selectedJury);
-    if (jury) {
-      db.addNotification({
-        id: generateId(),
-        userId: selectedJury,
-        message: `You have been assigned to evaluate: ${project?.projectTitle}`,
-        type: 'info',
-        read: false,
-        createdAt: new Date().toISOString(),
-      });
-    }
-    setSuccess(`Project assigned to ${jury?.name} successfully!`);
-    setError('');
-    setSelectedProject('');
-    setSelectedJury('');
-    refresh();
-    setTimeout(() => setSuccess(''), 3000);
   };
 
-  const handleRemove = (id: string) => {
-    db.removeAssignment(id);
-    refresh();
+  const handleRemove = async (id: string) => {
+    try {
+      await apiClient.delete(`/api/assignments/${id}`);
+      fetchData();
+    } catch (err) { console.error(err); }
   };
-
-  const getProject = (id: string) => db.getProjectById(id);
-  const getJury = (id: string) => db.getUserById(id);
 
   return (
     <div className="space-y-6">
@@ -94,7 +93,7 @@ export default function AssignmentsPage() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm outline-none focus:border-violet-500">
               <option value="">-- Select a project --</option>
               {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.projectTitle} ({p.teamName})</option>
+                <option key={p._id} value={p._id}>{p.projectTitle} ({p.teamName})</option>
               ))}
             </select>
           </div>
@@ -104,16 +103,16 @@ export default function AssignmentsPage() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm outline-none focus:border-violet-500">
               <option value="">-- Select a jury member --</option>
               {juryMembers.map(j => (
-                <option key={j.id} value={j.id}>{j.name} ({j.expertiseArea || j.email})</option>
+                <option key={j._id} value={j._id}>{j.name} ({j.expertiseArea || j.email})</option>
               ))}
             </select>
           </div>
         </div>
 
-        {juryMembers.length === 0 && (
+        {juryMembers.length === 0 && !loading && (
           <p className="text-amber-400 text-sm mb-4">⚠️ No approved jury members available. Please approve jury members first.</p>
         )}
-        {projects.length === 0 && (
+        {projects.length === 0 && !loading && (
           <p className="text-amber-400 text-sm mb-4">⚠️ No projects submitted yet.</p>
         )}
 
@@ -128,34 +127,30 @@ export default function AssignmentsPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-gray-900 border-b border-gray-800">
-              {['Project', 'Category', 'Team', 'Jury Member', 'Assigned Date', 'Evaluated', 'Actions'].map(h => (
+              {['Project', 'Category', 'Team', 'Jury Member', 'Assigned Date', 'Actions'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {assignments.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-500">No assignments yet</td></tr>
+            {loading ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-500">Loading...</td></tr>
+            ) : assignments.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-500">No assignments yet</td></tr>
             ) : assignments.map(a => {
-              const project = getProject(a.projectId);
-              const jury = getJury(a.juryId);
-              const evaluated = db.getEvaluationByJuryProject(a.juryId, a.projectId);
+              const project = a.projectId;
+              const jury = a.juryId;
               return (
-                <tr key={a.id} className="bg-gray-900/50 hover:bg-gray-800/50 transition-colors">
+                <tr key={a._id} className="bg-gray-900/50 hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3 text-sm text-white font-medium">{project?.projectTitle || 'Unknown'}</td>
                   <td className="px-4 py-3">
                     {project && <Badge variant={categoryColors[project.category] || 'blue'}>{project.category}</Badge>}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-300">{project?.teamName || '—'}</td>
                   <td className="px-4 py-3 text-sm text-gray-300">{jury?.name || 'Unknown'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-400">{new Date(a.assignedAt).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400">{new Date(a.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
-                    {evaluated
-                      ? <Badge variant="approved">Evaluated ({evaluated.totalScore}/50)</Badge>
-                      : <Badge variant="pending">Pending</Badge>}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => handleRemove(a.id)}
+                    <button onClick={() => handleRemove(a._id)}
                       className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors">
                       <Trash2 size={15} />
                     </button>

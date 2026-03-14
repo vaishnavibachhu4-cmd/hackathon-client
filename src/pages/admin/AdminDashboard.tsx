@@ -1,29 +1,50 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Users, FolderOpen, Gavel, Trophy, ClipboardList, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
-import { db } from '../../lib/db';
+import { Users, FolderOpen, Gavel, Trophy, ClipboardList, TrendingUp, AlertCircle } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
 import StatCard from '../../components/StatCard';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const users = db.getUsers();
-  const teams = db.getTeams();
-  const projects = db.getProjects();
-  const evaluations = db.getEvaluations();
-  const assignments = db.getAssignments();
+  const [stats, setStats] = useState({
+    participants: [] as any[],
+    juryMembers: [] as any[],
+    projects: [] as any[],
+    assignments: [] as any[],
+  });
+  const [loading, setLoading] = useState(true);
 
-  const participants = users.filter(u => u.role === 'participant');
-  const juryMembers = users.filter(u => u.role === 'jury');
-  const pendingParticipants = participants.filter(u => u.approvalStatus === 'pending');
-  const pendingJury = juryMembers.filter(u => u.approvalStatus === 'pending');
-  const approvedParticipants = participants.filter(u => u.approvalStatus === 'approved');
+  const fetchStats = useCallback(async () => {
+    try {
+      const [participants, jury, projects, assignments] = await Promise.all([
+        apiClient.get('/api/users/participants'),
+        apiClient.get('/api/users/jury'),
+        apiClient.get('/api/projects'),
+        apiClient.get('/api/assignments'),
+      ]);
+      setStats({ participants, juryMembers: jury, projects, assignments });
+    } catch (err) {
+      console.error('Failed to load dashboard:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const recentProjects = projects.slice(-5).reverse();
-  const recentUsers = users.filter(u => u.role !== 'admin').slice(-5).reverse();
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
-  const categoryStats = teams.reduce((acc, t) => {
-    acc[t.category] = (acc[t.category] || 0) + 1;
+  const { participants, juryMembers, projects, assignments } = stats;
+  const pendingParticipants = participants.filter((u: any) => u.approvalStatus === 'pending');
+  const pendingJury = juryMembers.filter((u: any) => u.approvalStatus === 'pending');
+  const approvedParticipants = participants.filter((u: any) => u.approvalStatus === 'approved');
+
+  const recentProjects = [...projects].reverse().slice(0, 5);
+  const recentUsers = [...participants, ...juryMembers].sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  ).slice(0, 5);
+
+  const categoryStats = projects.reduce((acc: any, p: any) => {
+    acc[p.category] = (acc[p.category] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
@@ -71,16 +92,16 @@ export default function AdminDashboard() {
             color="bg-gradient-to-br from-emerald-600 to-teal-700" subtitle={`${approvedParticipants.length} approved`} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <StatCard title="Teams" value={teams.length} icon={<ClipboardList size={20} className="text-white" />}
-            color="bg-gradient-to-br from-blue-600 to-indigo-700" subtitle={`${projects.length} submitted`} />
+          <StatCard title="Projects" value={projects.length} icon={<ClipboardList size={20} className="text-white" />}
+            color="bg-gradient-to-br from-blue-600 to-indigo-700" subtitle="submitted" />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <StatCard title="Jury Members" value={juryMembers.length} icon={<Gavel size={20} className="text-white" />}
             color="bg-gradient-to-br from-amber-600 to-orange-700" subtitle={`${assignments.length} assignments`} />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <StatCard title="Evaluations" value={evaluations.length} icon={<Trophy size={20} className="text-white" />}
-            color="bg-gradient-to-br from-violet-600 to-purple-700" subtitle={`of ${assignments.length} assigned`} />
+          <StatCard title="Assignments" value={assignments.length} icon={<Trophy size={20} className="text-white" />}
+            color="bg-gradient-to-br from-violet-600 to-purple-700" subtitle="total assigned" />
         </motion.div>
       </div>
 
@@ -91,12 +112,14 @@ export default function AdminDashboard() {
             <h3 className="text-white font-semibold">Recent Projects</h3>
             <button onClick={() => navigate('/admin/projects')} className="text-xs text-violet-400 hover:text-violet-300">View all</button>
           </div>
-          {recentProjects.length === 0 ? (
+          {loading ? (
+            <p className="text-gray-500 text-sm text-center py-6">Loading...</p>
+          ) : recentProjects.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-6">No projects submitted yet</p>
           ) : (
             <div className="space-y-3">
-              {recentProjects.map(p => (
-                <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
+              {recentProjects.map((p: any) => (
+                <div key={p._id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
                   <div className="w-9 h-9 bg-violet-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
                     <FolderOpen size={16} className="text-violet-400" />
                   </div>
@@ -104,7 +127,7 @@ export default function AdminDashboard() {
                     <p className="text-white text-sm font-medium truncate">{p.projectTitle}</p>
                     <p className="text-gray-400 text-xs">{p.teamName} · {p.category}</p>
                   </div>
-                  <span className="text-xs text-gray-500">{new Date(p.submissionDate).toLocaleDateString()}</span>
+                  <span className="text-xs text-gray-500">{new Date(p.submissionDate || p.createdAt).toLocaleDateString()}</span>
                 </div>
               ))}
             </div>
@@ -118,16 +141,16 @@ export default function AdminDashboard() {
             <TrendingUp size={16} className="text-gray-500" />
           </div>
           {Object.keys(categoryStats).length === 0 ? (
-            <p className="text-gray-500 text-sm text-center py-6">No teams created yet</p>
+            <p className="text-gray-500 text-sm text-center py-6">No projects submitted yet</p>
           ) : (
             <div className="space-y-3">
-              {Object.entries(categoryStats).map(([cat, count]) => {
-                const pct = Math.round((count / teams.length) * 100);
+              {Object.entries(categoryStats).map(([cat, count]: any) => {
+                const pct = Math.round((count / projects.length) * 100);
                 return (
                   <div key={cat}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-300">{cat}</span>
-                      <span className="text-gray-400">{count} team{count > 1 ? 's' : ''}</span>
+                      <span className="text-gray-400">{count} project{count > 1 ? 's' : ''}</span>
                     </div>
                     <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                       <div className="h-full bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full" style={{ width: `${pct}%` }} />
@@ -145,12 +168,14 @@ export default function AdminDashboard() {
             <h3 className="text-white font-semibold">Recent Registrations</h3>
             <button onClick={() => navigate('/admin/participants')} className="text-xs text-violet-400 hover:text-violet-300">View all</button>
           </div>
-          {recentUsers.length === 0 ? (
+          {loading ? (
+            <p className="text-gray-500 text-sm text-center py-6">Loading...</p>
+          ) : recentUsers.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-6">No registrations yet</p>
           ) : (
             <div className="space-y-3">
-              {recentUsers.map(u => (
-                <div key={u.id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
+              {recentUsers.map((u: any) => (
+                <div key={u._id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                     {u.name.charAt(0)}
                   </div>
