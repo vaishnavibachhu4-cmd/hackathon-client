@@ -1,39 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Search, CheckCircle, XCircle, Eye, Filter } from 'lucide-react';
-import { db, generateId } from '../../lib/db';
+import { Search, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { apiClient } from '../../lib/apiClient';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
-import type { User } from '../../lib/types';
+
+interface User {
+  _id: string;
+  name: string;
+  email: string;
+  college?: string;
+  phone?: string;
+  role: string;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
 
 export default function ParticipantsPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [, forceUpdate] = useState(0);
+  const [participants, setParticipants] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const refresh = () => forceUpdate(n => n + 1);
+  const fetchParticipants = useCallback(async () => {
+    try {
+      const data = await apiClient.get('/api/users/participants');
+      setParticipants(data);
+    } catch (err) {
+      console.error('Failed to fetch participants:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const participants = db.getUsers().filter(u => u.role === 'participant')
+  useEffect(() => { fetchParticipants(); }, [fetchParticipants]);
+
+  const handleApprove = async (id: string) => {
+    try {
+      await apiClient.patch(`/api/users/${id}/status`, { approvalStatus: 'approved' });
+      fetchParticipants();
+      setSelectedUser(null);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await apiClient.patch(`/api/users/${id}/status`, { approvalStatus: 'rejected' });
+      fetchParticipants();
+      setSelectedUser(null);
+    } catch (err) { console.error(err); }
+  };
+
+  const filtered = participants
     .filter(u => filter === 'all' || u.approvalStatus === filter)
     .filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
 
-  const handleApprove = (id: string) => {
-    db.updateUser(id, { approvalStatus: 'approved' });
-    db.addNotification({ id: generateId(), userId: id, message: 'Your registration has been approved! You can now login.', type: 'success', read: false, createdAt: new Date().toISOString() });
-    refresh();
-  };
-
-  const handleReject = (id: string) => {
-    db.updateUser(id, { approvalStatus: 'rejected' });
-    db.addNotification({ id: generateId(), userId: id, message: 'Your registration was rejected. Contact admin for details.', type: 'error', read: false, createdAt: new Date().toISOString() });
-    refresh();
-  };
-
-  const allParticipants = db.getUsers().filter(u => u.role === 'participant');
-  const pending = allParticipants.filter(u => u.approvalStatus === 'pending').length;
-  const approved = allParticipants.filter(u => u.approvalStatus === 'approved').length;
-  const rejected = allParticipants.filter(u => u.approvalStatus === 'rejected').length;
+  const pending = participants.filter(u => u.approvalStatus === 'pending').length;
+  const approved = participants.filter(u => u.approvalStatus === 'approved').length;
+  const rejected = participants.filter(u => u.approvalStatus === 'rejected').length;
 
   return (
     <div className="space-y-6">
@@ -87,10 +112,12 @@ export default function ParticipantsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/50">
-            {participants.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-500">Loading...</td></tr>
+            ) : filtered.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-500">No participants found</td></tr>
-            ) : participants.map(p => (
-              <tr key={p.id} className="bg-gray-900/50 hover:bg-gray-800/50 transition-colors">
+            ) : filtered.map(p => (
+              <tr key={p._id} className="bg-gray-900/50 hover:bg-gray-800/50 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
@@ -105,7 +132,7 @@ export default function ParticipantsPage() {
                 <td className="px-4 py-3 text-sm text-gray-300">{p.college || '—'}</td>
                 <td className="px-4 py-3 text-sm text-gray-300">{p.phone || '—'}</td>
                 <td className="px-4 py-3">
-                  <Badge variant={p.approvalStatus as 'pending' | 'approved' | 'rejected'}>
+                  <Badge variant={p.approvalStatus}>
                     {p.approvalStatus.charAt(0).toUpperCase() + p.approvalStatus.slice(1)}
                   </Badge>
                 </td>
@@ -116,12 +143,12 @@ export default function ParticipantsPage() {
                       <Eye size={15} />
                     </button>
                     {p.approvalStatus !== 'approved' && (
-                      <button onClick={() => handleApprove(p.id)} className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 rounded-lg transition-colors" title="Approve">
+                      <button onClick={() => handleApprove(p._id)} className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 rounded-lg transition-colors" title="Approve">
                         <CheckCircle size={15} />
                       </button>
                     )}
                     {p.approvalStatus !== 'rejected' && (
-                      <button onClick={() => handleReject(p.id)} className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors" title="Reject">
+                      <button onClick={() => handleReject(p._id)} className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors" title="Reject">
                         <XCircle size={15} />
                       </button>
                     )}
@@ -143,9 +170,7 @@ export default function ParticipantsPage() {
               <div>
                 <h3 className="text-white text-lg font-semibold">{selectedUser.name}</h3>
                 <p className="text-gray-400">{selectedUser.email}</p>
-                <Badge variant={selectedUser.approvalStatus as 'pending' | 'approved' | 'rejected'}>
-                  {selectedUser.approvalStatus}
-                </Badge>
+                <Badge variant={selectedUser.approvalStatus}>{selectedUser.approvalStatus}</Badge>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -163,11 +188,11 @@ export default function ParticipantsPage() {
             </div>
             {selectedUser.approvalStatus === 'pending' && (
               <div className="flex gap-3">
-                <button onClick={() => { handleApprove(selectedUser.id); setSelectedUser(null); }}
+                <button onClick={() => handleApprove(selectedUser._id)}
                   className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-medium">
                   Approve
                 </button>
-                <button onClick={() => { handleReject(selectedUser.id); setSelectedUser(null); }}
+                <button onClick={() => handleReject(selectedUser._id)}
                   className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-medium">
                   Reject
                 </button>

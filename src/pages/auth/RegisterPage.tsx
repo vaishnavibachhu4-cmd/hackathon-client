@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Users, Gavel, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { db, generateId, hashPassword } from '../../lib/db';
-import type { User } from '../../lib/types';
+import { apiClient } from '../../lib/apiClient';
 
 export default function RegisterPage() {
   const { role = 'participant' } = useParams<{ role: string }>();
@@ -34,29 +33,24 @@ export default function RegisterPage() {
       setError('Password must be at least 6 characters');
       return;
     }
-    const existing = db.getUserByEmail(formData.email.toLowerCase());
-    if (existing) {
-      setError('An account with this email already exists');
-      return;
-    }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 800));
-    const user: User = {
-      id: generateId(),
-      name: formData.name.trim(),
-      email: formData.email.toLowerCase().trim(),
-      password: hashPassword(formData.password),
-      role: isJury ? 'jury' : 'participant',
-      approvalStatus: 'pending',
-      college: formData.college,
-      phone: formData.phone,
-      organization: formData.organization,
-      expertiseArea: formData.expertiseArea,
-      createdAt: new Date().toISOString(),
-    };
-    db.addUser(user);
-    setLoading(false);
-    setSuccess(true);
+    try {
+      await apiClient.post('/api/auth/register', {
+        name: formData.name.trim(),
+        email: formData.email.toLowerCase().trim(),
+        password: formData.password,
+        role: isJury ? 'jury' : 'participant',
+        college: formData.college,
+        phone: formData.phone,
+        organization: formData.organization,
+        expertiseArea: formData.expertiseArea,
+      });
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const config = isJury ? {
@@ -81,7 +75,7 @@ export default function RegisterPage() {
           <p className="text-gray-400 text-sm mb-6">
             Your account is pending admin approval. You'll be able to login once approved.
           </p>
-          <button onClick={() => navigate(`/login/${role}`)}
+          <button onClick={() => navigate('/login')}
             className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl font-medium">
             Go to Login
           </button>
@@ -188,7 +182,7 @@ export default function RegisterPage() {
 
             <p className="text-center text-sm text-gray-500">
               Already have an account?{' '}
-              <button type="button" onClick={() => navigate(`/login/${role}`)} className="text-violet-400 hover:text-violet-300 font-medium">
+              <button type="button" onClick={() => navigate('/login')} className="text-violet-400 hover:text-violet-300 font-medium">
                 Sign in
               </button>
             </p>
